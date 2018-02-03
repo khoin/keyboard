@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>TUNER WINDOW</title>
+	<script src="Helper.js"></script>
+	<style>
+		* { font-family: monospace; }
+		html, body { background: #000; text: #fff; margin: 0; padding: 0; text-align: center;}
+		textarea { width: 96%; height: 500px; resize: none; font-size: 120%; }
+		button { padding: 5px; font-size: 130%;  }
+	</style>
+</head>
+<body>
+<textarea id="tuningData"></textarea>
+<br>
+<button id="submit">Save Tuning</button>
+<button id="reset" style="background: red;">Reset To Defaults</button>
+<script>
+window.onload = () => {
+	tuningData.value = localStorage.getItem("tuningFile");
+}
+
+reset.onclick = e => {
+	let answer = window.confirm("Are you sure you want to reset to defaults?\nFor safety, it won't be reverted until you click Save.");
+	if (answer) {
+		tuningData.value = Helper.DEFAULT_TUNING_FILE;
+	}
+}
+
+submit.onclick = () => {
+	// Save it to localStorage
+	localStorage.setItem("tuningFile", tuningData.value);
+
+	window.opener.postMessage("tune plz", "*");
+}
+	
+</script>
+</body>
+</html>

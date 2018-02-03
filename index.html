@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Keyboard</title>
+	<meta charset="utf-8">
+	<!-- <meta name="viewport" content="width=device-width, initial-scale=1"> -->
+	<script src="Helper.js"></script>
+	<script src="NexusUI.js"></script> <!-- Docs at a http://nexus-js.github.io/ui/api/ -->
+	<style>
+		body { margin: 0 auto; background: #222; max-width: 1200px; color: rgb(34, 187, 187); font-family: monospace; }
+		
+		div[row] { clear: both; overflow: hidden;}
+		div[half] { width: 50%; }
+		div[quarter] { width: 25%; }
+
+		div[stackRow] { display: inline-block; margin: 0; float: left; }
+		span[sectionLabel] { font-size: 200%; font-weight: bold; text-align: center; }
+		span[sectionLabel]:before{ content: '🙜 '; }
+		span[sectionLabel]:after { content: ' 🙞'; }
+
+		div[data-label] { margin-bottom: 15px !important; text-align: center; bottom: 0; }
+		div[data-label]:after { content: attr(data-label); }
+
+		span[buttonLabel] { font-size: 25px; font-weight: bold;}
+
+		/** Special **/
+		div[stackRow][nexus-ui] { margin: 1px; }
+		#ampenv input, #lfo input, #intervalWidths input { margin-left: 10px; }
+		
+	</style>
+</head>
+<body>
+	Best Used with Chrome. Firefox has yet to implement cancelAndHoldAtTimes, so the envelopes are quirky.
+	<br>
+	<div row>
+		<div stackRow id="waveform"></div>
+		<div stackRow id="killAll"></div><br>
+		<div stackRow id="susToggle"></div>
+		<div stackRow id="waveSelect"></div><div stackRow id="saveWave"></div><div stackRow id="delWave"></div>
+	</div><br>
+	<div row id="phaseSliders"></div><br>
+	<div row id="phaseNumbers"></div><br>
+	<div row id="harmonicSliders"></div><br>
+	<div row id="harmonicNumbers"></div><br>
+	<div id="piano"></div>
+	C2 
+	<br>
+	<div row>
+		<div quarter stackRow>
+			<span sectionLabel>Tuning (cents)</span><br>
+			CENTS FROM EQUAL TEMPERAMENT <br>
+			<div id="tunings"></div>
+			<div row>
+				<div stackRow id="tuningList"></div>
+				<div stackRow id="modifyTuningButton"></div>
+			</div>
+			<div id="intervalWidths">
+			3RD JI DEVIATION (C <-> E) (CENTS) <div row><div stackRow id="third"></div> <div stackRow id="thirdNum"></div></div>
+			5TH JI DEVIATION (C <-> G) (CENTS) <div row><div stackRow id="fifth"></div> <div stackRow id="fifthNum"></div></div>
+			</div>
+		</div>
+		<div quarter stackRow id="ampenv">
+			<span sectionLabel>Amp Envelope</span><br>
+			ATTACK (MS) <div row><div stackRow id="attack"></div> <div stackRow id="attackNum"></div></div>
+			DECAY  (MS) <div row><div stackRow id="decay"></div> <div stackRow id="decayNum"></div></div>
+			SUSTAIN (%) <div row><div stackRow id="sustain"></div> <div stackRow id="sustainNum"></div></div>
+			RELEASE (MS)<div row><div stackRow id="release"></div> <div stackRow id="releaseNum"></div></div>
+		</div>
+		<div quarter stackRow id="lfo">
+			<span sectionLabel>LowFreqOscs</span><br>
+			VIBRATO DEPTH (CENTS) <div row><div stackrow id="vibDepth"></div><div stackRow id="vibDepthNum"></div></div>
+			VIBRATO SPEED (HZ) <div row><div stackrow id="vibSpeed"></div><div stackRow id="vibSpeedNum"></div></div>
+		</div>
+		<div quarter stackRow id="btns">
+			<span sectionLabel>Buttons</span><br>
+			<div stackRow id="cMajorButton"></div>
+		</div>
+	</div>
+<script>
+
+// Browser compatibilities
+let AudioContext = window.AudioContext || window.webkitAudioContext;
+
+// Shorthands
+const d = document;
+d.$ = d.getElementById;
+
+// App constants
+const NUM_HARMONICS = 24;
+const WAVEFORM_RESOLUTION = 1000;
+const WAVEFORM_PERIOD = 3;
+const LOW_NOTE = 0;
+const HIGH_NOTE = 60;
+const DEFAULT_WAVES = ['NON', 'TRI', 'SQR', 'SAW'];
+const DEFAULT_TUNES = ['ET12'];
+
+// Environment Setup
+let aC 					= new AudioContext();
+Nexus.context = aC;
+let mainGain			= aC.createGain();
+mainGain.gain.value = 0.05; // -40dB
+mainGain.connect(aC.destination);
+
+// Application UI
+let pianoRoll			= new Nexus.Piano("piano", 			{ size: [1200, 100], mode: "button", lowNote: LOW_NOTE, highNote: HIGH_NOTE}),
+	sustainToggle		= new Nexus.TextButton("susToggle", { size: [196, 49], text: "Sustain (\\)", mode: "toggle", alternate: "Sustain On"}),
+	killAllButton		= new Nexus.TextButton("killAll", 	{ size: [196, 49], text: "Kill All ⏎" }),
+	waveSelect			= new Nexus.Select("waveSelect", 	{ size: [92, 48], options: [...DEFAULT_WAVES] }),
+	saveWaveBtn			= new Nexus.TextButton("saveWave",{ size: [50, 48], text: "S"}),
+	delWaveBtn			= new Nexus.TextButton("delWave", { size: [50, 48], text: "D"}),
+	waveformDisplay		= new Nexus.Multislider("waveform", 
+							{ 
+								size: [1000, 150], 
+								numberOfSliders: WAVEFORM_RESOLUTION, 
+								min: -1, max: 1, step: 0.0001,
+								values: new Array(WAVEFORM_RESOLUTION).fill(0)
+							});
+
+let attackSlider		= new Nexus.Slider("attack",	{ size: [180, 30], min: 0, max: 4000, step: 1, value:  20 }),
+	decaySlider			= new Nexus.Slider("decay",		{ size: [180, 30], min: 0, max: 4000, step: 1, value: 500 }),
+	sustainSlider		= new Nexus.Slider("sustain",	{ size: [180, 30], min: 0, max:  100, step: 1, value:  70 }),
+	releaseSlider		= new Nexus.Slider("release",	{ size: [180, 30], min: 0, max: 4000, step: 1, value:  20 }),
+	attackNumber		= new Nexus.Number("attackNum",	{ size: [50, 30]}),
+	decayNumber			= new Nexus.Number("decayNum",	{ size: [50, 30]}),
+	sustainNumber		= new Nexus.Number("sustainNum",{ size: [50, 30]}),
+	releaseNumber		= new Nexus.Number("releaseNum",{ size: [50, 30]});
+
+attackNumber.link(attackSlider);
+decayNumber.link(decaySlider);
+sustainNumber.link(sustainSlider);
+releaseNumber.link(releaseSlider);
+
+let vibDepthSlider		= new Nexus.Slider("vibDepth",	{ size: [180, 30], min: 0, max: 200, step: 1, value: 0}),
+	vibSpeedSlider		= new Nexus.Slider("vibSpeed",	{ size: [180, 30], min: 0, max:  20, step: 0.1, value: 0}),
+	vibDepthNumber		= new Nexus.Number("vibDepthNum", { size: [50, 30]}),
+	vibSpeedNumber		= new Nexus.Number("vibSpeedNum", { size: [50, 30]});
+
+vibDepthNumber.link(vibDepthSlider);
+vibSpeedNumber.link(vibSpeedSlider);
+
+let tuningNumbers		= [],
+	tuningList			= new Nexus.Select("tuningList", { size: [166, 48], options: ["",...DEFAULT_TUNES] }),
+	modifyTuningButton	= new Nexus.TextButton("modifyTuningButton", { size: [100, 48], text: "Load" });
+
+let thirdSlider			= new Nexus.Slider("third",	{ size: [180, 30], min: -150, max: 150, step: 0.01, value: -13.68 }),
+	fifthSlider			= new Nexus.Slider("fifth",	{ size: [180, 30], min: -150, max: 150, step: 0.01, value:   1.96 }),
+	thirdNumber			= new Nexus.Number("thirdNum",	{ size: [50, 30]}),
+	fifthNumber			= new Nexus.Number("fifthNum",	{ size: [50, 30]});
+
+thirdNumber.link(thirdSlider);
+fifthNumber.link(fifthSlider);
+
+let cMajorButton 		= new Nexus.TextButton("cMajorButton", { size: [100, 48], text: "C Maj"});
+
+// App variables
+	// A & B COEFFS --
+		// PeriodicWave gets two arrays, here aCoeffs/bCoeffs,
+		// which complys to (a+bi)e^(fi) + ... 
+		// The UI control values are stored in amplitude/phaseValues
+		// which are of the form amplitude and phase, i.e., a*cos(ft + b)
+		// We use Helper.CtoP to convert from one to another.
+	// Tunings
+		// OscillatorNode exposes two properties: frequency and detune
+		// We use frequency to assign the Equal Temperament value
+		// Detune will be used to specify the temperament we want
+	//
+let	harmonicSliders		= new Array(NUM_HARMONICS),
+	aCoeffs				= new Float32Array(NUM_HARMONICS + 1),
+	bCoeffs				= new Float32Array(NUM_HARMONICS + 1),
+	amplitudeValues		= new Float32Array(NUM_HARMONICS + 1),
+	amplitudeSliders	= [],
+	phaseValues			= new Float32Array(NUM_HARMONICS + 1),
+	phaseSliders		= [],
+	periodicWave		= aC.createPeriodicWave(aCoeffs, bCoeffs, {disableNormalization: true}),
+	noteBucket			= [],
+	tuningPresets		= [],
+	tuningCoeffs		= new Array(12).fill(0);
+
+// Generate Sliders UI for Harmonics 
+// This part is ugly, just collapse it in your text editor / IDE.
+for (let i = 0; i < NUM_HARMONICS; i++) {
+	let _idPrefixes = ["harmonicSlider", "harmonicNumber", "phaseSlider", "phaseNumber"];
+	let [harmonicSlider, harmonicNumber, phaseSlider, phaseNumber] = [0,0,0,0].map( (x, j) => {
+		x = d.createElement("div")
+		x.id = _idPrefixes[j] + i;
+		x.setAttribute("stackRow", "");
+		if (j == 0 || j == 2) x.setAttribute("data-label", "#"+(i+1))
+		d.$(_idPrefixes[j] + "s").appendChild(x);
+		return x;
+	});
+
+	// Creates harmonic amplitude sliders and numbers
+	let hNumber = new Nexus.Number(harmonicNumber.id, { size: [40, 25] });
+	let hSlider = new Nexus.Slider(harmonicSlider.id, { 
+		size 	: [40, 100],
+		min 	: 0,
+		max 	: 1,
+		step	: 0.00001
+	});
+	hNumber.link(hSlider);
+	hSlider.on('change', v => changeAmplitude(i, v));
+	amplitudeSliders.push(hSlider);
+
+	// Creates phase sliders and numbers
+	let pNumber = new Nexus.Number(phaseNumber.id, { size: [40, 25] });
+	let pSlider = new Nexus.Slider(phaseSlider.id, { 
+		size 	: [40, 100],
+		min 	: -3.14159,
+		max 	: 3.14159,
+		step	: 0.00001
+	});
+	pNumber.link(pSlider);
+	pSlider.on('change', v => changePhase(i, v));
+	phaseSliders.push(pSlider);
+}
+
+// // // // // // // //  PIANO & MISC. // // // // // // // // 
+
+let pianoEventHandler = v => {
+	if (v.state) 
+		pressNote(v.note)
+	else
+		releaseNote(v.note)
+}
+// Piano Set-up
+pianoRoll.on('change', pianoEventHandler);
+sustainToggle.on('change', state => {
+
+	let mode = (state)? "toggle" : "button"
+
+	// Destroy the current piano and create a new one accordingly
+	pianoRoll.destroy();
+	pianoRoll = new Nexus.Piano("piano", { size: [1200, 100], mode: mode, lowNote: LOW_NOTE, highNote: HIGH_NOTE});
+	pianoRoll.on('change', pianoEventHandler);
+
+
+	// Destroy CMajor Button
+	cMajorButton.destroy();
+	cMajorButton 		= new Nexus.TextButton("cMajorButton", { size: [100, 48], mode: mode, text: "C Maj"});
+	cMajorButton.on('change', cMajorHandler);
+});
+
+d.addEventListener("keydown", e => {
+	if (e.key == "\\")
+		sustainToggle.flip();
+})
+// qwerty Keyboard piano Setup
+let keyboardMapping = "zsxdcvgbhnjm,l.;/q2w3e4rt6y7ui9o0p-[";
+d.addEventListener("keydown", e => {
+	if (e.repeat) return;
+	let key = keyboardMapping.indexOf(e.key);
+	if (key !== -1) {
+		pianoRoll.toggleIndex(key + 12);
+	}
+});
+d.addEventListener("keyup", e => {
+	if (sustainToggle.state) return;
+	let key = keyboardMapping.indexOf(e.key);
+	if (key !== -1) {
+		pianoRoll.toggleIndex(key + 12, false);
+	}
+});
+
+// Kill All Button
+killAllButton.on('change', () => {
+	for (let i = 0; i < pianoRoll.range.size; i++) 
+		pianoRoll.toggleIndex(i, false);
+});
+d.addEventListener("keydown", e => {
+	if (e.key == "Enter") {
+		killAllButton.flip();
+		killAllButton.flip();
+	}
+});
+
+// C Major Button
+let cMajorHandler = () => {
+	pianoRoll.toggleIndex(24);
+	pianoRoll.toggleIndex(24 + 4);
+	pianoRoll.toggleIndex(24 + 7);
+}
+cMajorButton.on('change', cMajorHandler);
+
+// // // // // // // //  WAVEFORM & HARMONICS // // // // // // // // 
+
+// Waveform selection button
+waveSelect.on('change', v => {
+	resetWaveform();
+	switch (v.value) {
+		case 'TRI':
+			for (let i = 0; 2*i+1 < NUM_HARMONICS + 1; i++)
+				{
+					if ((-1)**i < 0) phaseSliders[(2*i+1)-1].value = Math.PI;
+					amplitudeSliders[(2*i+1)-1].value =  8/((Math.PI**2)*((2*i+1)**2));
+				}
+		break;
+		case 'SAW':
+			for (let i = 1; i < NUM_HARMONICS + 1; i++)
+				{
+					if ((-1)**i < 0) phaseSliders[i-1].value = Math.PI;
+					amplitudeSliders[i-1].value = 1/i;
+				}
+		break;
+		case 'SQR':
+			for (let i = 1; 2*i-1 < NUM_HARMONICS + 1; i++)
+				{
+					amplitudeSliders[(2*i-1)-1].value =  4/Math.PI/(2*i-1);
+				};
+		break;
+		default:
+			console.log("This is not a preset");
+	}
+})
+
+// Reminder: 0th harmonic (in the amplitudeValues) is not audible, 1st is fundamental.
+let resetWaveform	= () => {
+	amplitudeValues		= new Float32Array(NUM_HARMONICS + 1);
+	phaseValues			= new Float32Array(NUM_HARMONICS + 1); 
+	updateABCoeffs();
+	updateAmplitudePhaseSliders();
+}
+let updateAmplitudePhaseSliders = () => {
+	amplitudeSliders.forEach((slider, i) => slider.value = amplitudeValues[1 + i]);
+	phaseSliders	.forEach((slider, i) => slider.value = phaseValues[1 + i]);
+}
+let changeAmplitude	= (harm, coeff) => { 
+	amplitudeValues[1 + harm]	= coeff; 
+	updateABCoeffs(); 
+}
+let changePhase 	= (harm, coeff) => { 
+	phaseValues	[1 + harm]	= coeff; 
+	updateABCoeffs(); 
+}
+let updateABCoeffs	= () => {
+	[aCoeffs, bCoeffs] = Helper.PtoC(amplitudeValues, phaseValues);
+	periodicWave = aC.createPeriodicWave(aCoeffs, bCoeffs, {disableNormalization: true});
+
+	// traverse held notes and update
+	noteBucket.forEach( x => {
+		if (x[0])
+			x[0].setPeriodicWave(periodicWave)
+	});
+	// Redraw waveform, closure
+	(() => {
+		let wave = [];
+		let increment = (1/WAVEFORM_RESOLUTION)*2*Math.PI * WAVEFORM_PERIOD; 
+		let periodLength = WAVEFORM_RESOLUTION/WAVEFORM_PERIOD;
+		let max = 1;
+		for (let i = 0, phase = 0; i < periodLength; i++, phase += increment) {
+			let out = wave[i] = amplitudeValues.reduce( (x,y,f) => x + y*Math.sin(f*phase + phaseValues[f]) , 0);	
+			max = Math.max(max, out)
+		}
+		// normalization & repeating periods
+		wave = wave.map(x => x/max);
+		for (let j = 0; j < WAVEFORM_PERIOD; j++)
+			wave = wave.concat(wave);
+		waveformDisplay.setAllSliders(wave);
+
+	})();
+}
+
+
+// // // // // // // //  VIBRATO // // // // // // // // 
+
+// Vibrato Real-time invokation
+vibSpeedSlider.on('change', v => {
+	noteBucket.forEach( x => {
+		if (x[2])
+			x[2].frequency.linearRampToValueAtTime(v, aC.currentTime + 0.01)
+	});
+})
+vibDepthSlider.on('change', v => {
+	noteBucket.forEach( x => {
+		if (x[3])
+			x[3].gain.linearRampToValueAtTime(v, aC.currentTime + 0.01)
+	});
+});
+
+
+
+// // // // // // // //  TUNINGS // // // // // // // // 
+
+// Generate Numbers UI for Tuning
+for (let i = 0; i < tuningCoeffs.length; i++) {
+	let el = d.createElement("div");
+	el.id = "tuning" + i;
+	el.setAttribute("stackRow", "")
+	d.$("tunings").appendChild(el);
+
+	let tNumber = new Nexus.Number(el.id, { 
+		size 	: [43,25], 
+		min		: -100,
+		max		: 100,
+		step	: 0.01
+	});
+
+	tuningNumbers.push(tNumber);
+	tNumber.on('change', v => { tuningCoeffs[i] = v; updateTunings(); updateIntervals(); });
+	// line-break
+	if ( i == 5 ) {
+		let br = d.createElement("div");
+		br.style.clear = "both";
+		d.$("tunings").appendChild(br)
+	}
+}
+
+// Tuning Windows
+modifyTuningButton.on('change', v => {
+	if(v) {
+		let childWindow = window.open("tuner.html", "_blank", "width=500, height=600");
+	}
+})
+// listen to tuning window
+window.addEventListener("message", e => {
+	if(e.data == "tune plz") updateTuningList();
+});
+let updateTuningList = () => {
+	// If tuning file doesn't exist, put in the default one.
+	if (localStorage.getItem("tuningFile") == null || localStorage.getItem("tuningFile").trim() == "") {
+		localStorage.setItem("tuningFile", Helper.DEFAULT_TUNING_FILE);
+		alert("Tuning file not set, using default. Press OK to continue.");
+	}
+
+	let parsedTunings = [];
+	let error = false;
+	try {
+		parsedTunings = Helper.TuningFileParsing(localStorage.getItem("tuningFile"));
+	} catch(e) {
+		error = true;
+		alert(e);
+	}
+
+	if (!error) {
+		tuningPresets = [(new Array(12)).fill(0),...parsedTunings.map(x => x[1])];
+		// Populate Name for UI
+		tuningList.defineOptions([...DEFAULT_TUNES, ...parsedTunings.map(x => x[0])]);
+	}
+}
+tuningList.on('change', v => {
+	let index = v.index;
+	// update tuning numbers
+	for (let i = 0; i < tuningNumbers.length; i++) 
+		tuningNumbers[i].value = tuningPresets[index][i];
+})
+
+// whenever a tuning number is changed
+let updateTunings = () => {
+	noteBucket.forEach( (x,i) => {
+		if (x[0])
+			x[0].frequency.setTargetAtTime(Math.pow(2, (i - 33 + tuningCoeffs[i%12]/100) / 12) * 440, aC.currentTime, 0.02);
+	});
+}
+
+let updateIntervals = () => {
+	let centsOfCFromC = tuningCoeffs[0];
+	let centsOfEFromC = tuningCoeffs[4] + 400;
+	let centsOfGFromC = tuningCoeffs[7] + 700;
+
+	// C < -- > E (in cents)
+	let widthOfThird = centsOfEFromC - centsOfCFromC;
+	// C < -- > G (in cents)
+	let widthOfFifth = centsOfGFromC - centsOfCFromC;
+
+	let deviationFromJIThird = centsOfEFromC - 1200*Math.log2(5/4) - centsOfCFromC;
+	let deviationFromJIFifth = centsOfGFromC - 1200*Math.log2(3/2) - centsOfCFromC;
+
+	thirdNumber.value = -deviationFromJIThird;
+	fifthNumber.value = -deviationFromJIFifth;
+}
+let intervalsHandler = () => {
+	let thirdJIDeviation = thirdNumber.value;
+	let fifthJIDeviation = fifthNumber.value;
+
+	let centsOfGFromC = tuningCoeffs[7] + 700;
+
+	// change deviation of C from C(ET)
+	tuningNumbers[0].value = centsOfGFromC - 1200*Math.log2(3/2) + fifthJIDeviation;
+	tuningNumbers[4].value = tuningNumbers[0].value + 1200*Math.log2(5/4) - thirdJIDeviation - 1200*Math.log2(2**(4/12));
+
+}
+
+thirdNumber.element.addEventListener('mousemove', intervalsHandler);
+fifthNumber.element.addEventListener('mousemove', intervalsHandler);
+thirdSlider.element.addEventListener('mousemove', intervalsHandler);
+fifthSlider.element.addEventListener('mousemove', intervalsHandler);
+
+
+let pressNote = (n,v) => {
+	let gain	= aC.createGain(),
+		osc		= aC.createOscillator(),
+		vib 	= aC.createOscillator(),
+		vibDep 	= aC.createGain();
+
+	// Setting up the OSC and connect
+	osc.setPeriodicWave(periodicWave);
+	osc.connect(gain);
+	gain.connect(mainGain);
+	// Setting up Vibrato and connect
+	vib.frequency.value = vibSpeedSlider.value;
+	vibDep.gain.value = vibDepthSlider.value;
+	vib.connect(vibDep);
+	vibDep.connect(osc.detune);
+	vib.start();
+
+	// Avoiding clicks at the beginning
+	gain.gain.setValueAtTime(0, aC.currentTime);
+	// Attack
+	gain.gain.setTargetAtTime(1, aC.currentTime, attackNumber.value/3000);
+	// Decay + Sustain
+	gain.gain.setTargetAtTime(sustainNumber.value/100, aC.currentTime + attackNumber.value/1000, decayNumber.value/3000);
+
+	// Setting frequency + temperament
+	osc.frequency.value = Math.pow(2, (n - 33 + tuningCoeffs[n%12]/100) / 12) * 440; 
+
+	// Finally start it, kill existing note and throw it into the bucket
+	osc.start();
+	if (noteBucket[n] && noteBucket[n][0]) noteBucket[n][0].stop();
+	noteBucket[n] = [osc, gain, vib, vibDep];
+}
+
+let releaseNote = n => {
+	if (noteBucket[n]) {
+		noteBucket[n][1].gain.cancelAndHoldAtTime(aC.currentTime)
+		noteBucket[n][1].gain.setTargetAtTime(0, aC.currentTime, (releaseNumber.value/3000));
+		noteBucket[n][0].stop(aC.currentTime + (releaseNumber.value/100));
+	}
+}
+
+
+(function init() {
+	updateTuningList(); 
+	amplitudeSliders[0].value = 1;
+})();
+
+</script>
+</body>
+</html>
