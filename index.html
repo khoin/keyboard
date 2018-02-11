@@ -5,7 +5,8 @@
 	<meta charset="utf-8">
 	<!-- <meta name="viewport" content="width=device-width, initial-scale=1"> -->
 	<script src="Helper.js"></script>
-	<script src="NexusUI.js"></script> <!-- Docs at a http://nexus-js.github.io/ui/api/ -->
+	<script src="FileSaver.min.js"></script> <!-- Docs at https://github.com/eligrey/FileSaver.js/ -->
+	<script src="NexusUI.js"></script> <!-- Docs at http://nexus-js.github.io/ui/api/ -->
 	<style>
 		body { margin: 0 auto; background: #222; max-width: 1200px; color: rgb(34, 187, 187); font-family: monospace; }
 		
@@ -26,17 +27,16 @@
 		/** Special **/
 		div[stackRow][nexus-ui] { margin: 1px; }
 		#ampenv input, #lfo input, #intervalWidths input { margin-left: 10px; }
+
+		#tunings { display: none; }
 		
 	</style>
 </head>
 <body>
-	Best Used with Chrome. Firefox has yet to implement cancelAndHoldAtTimes, so the envelopes are quirky.
-	<br>
 	<div row>
 		<div stackRow id="waveform"></div>
 		<div stackRow id="killAll"></div><br>
 		<div stackRow id="susToggle"></div>
-		<div stackRow id="waveSelect"></div><div stackRow id="saveWave"></div><div stackRow id="delWave"></div>
 	</div><br>
 	<div row id="phaseSliders"></div><br>
 	<div row id="phaseNumbers"></div><br>
@@ -48,16 +48,20 @@
 	<div row>
 		<div quarter stackRow>
 			<span sectionLabel>Tuning (cents)</span><br>
-			CENTS FROM EQUAL TEMPERAMENT <br>
+			WIDTHS (FIFTH, 3MAJOR, 3MINOR) <br>
+			<div stackRow id="maj5w"></div><div stackRow id="maj3w"></div><div stackRow id="min3w"></div>
 			<div id="tunings"></div>
 			<div row>
 				<div stackRow id="tuningList"></div>
 				<div stackRow id="modifyTuningButton"></div>
 			</div>
 			<div id="intervalWidths">
-			3RD JI DEVIATION (C <-> E) (CENTS) <div row><div stackRow id="third"></div> <div stackRow id="thirdNum"></div></div>
-			5TH JI DEVIATION (C <-> G) (CENTS) <div row><div stackRow id="fifth"></div> <div stackRow id="fifthNum"></div></div>
+			C deviate from JI (CENTS) <div row><div stackRow id="cSlider"></div> <div stackRow id="cAbsoluteN"></div></div>
+			E deviate from JI (CENTS) <div row><div stackRow id="eSlider"></div> <div stackRow id="eAbsoluteN"></div></div>
 			</div>
+			<div stackRow id="tuneJust"></div><div stackRow id="tuneET"></div>
+			<div stackRow id="tuneSave"></div><div stackRow id="tuneSlot"></div><div stackRow id="tuneCurr"></div>
+			<div stackRow id="start"></div>
 		</div>
 		<div quarter stackRow id="ampenv">
 			<span sectionLabel>Amp Envelope</span><br>
@@ -72,10 +76,25 @@
 			VIBRATO SPEED (HZ) <div row><div stackrow id="vibSpeed"></div><div stackRow id="vibSpeedNum"></div></div>
 		</div>
 		<div quarter stackRow id="btns">
-			<span sectionLabel>Buttons</span><br>
+			<span sectionLabel>Others</span><br>
+			WAVEFORM<br>
+			<div stackRow id="waveSelect"></div>
 			<div stackRow id="cMajorButton"></div>
 		</div>
 	</div>
+	<div row>
+		<span sectionLabel>Slots</span><br>
+		<span id="slotStatus" style="font-size: 120%;">
+		Currently at slot number [NUMBER] out of [TOTAL] slots.
+		</span><br>
+		<input type="text" id="slotComment" placeholder="type slot comments here" />
+		<br>
+		<div stackRow id="prevSlot"></div><div stackRow id="nextSlot"></div>
+		<div stackRow id="saveSlot"></div><div stackRow id="overrideSlot"></div><div stackRow id="delSlot"></div>
+		<div stackRow id="export"></div>
+	</div>
+	<br>
+	<br>
 <script>
 
 // Browser compatibilities
@@ -106,8 +125,6 @@ let pianoRoll			= new Nexus.Piano("piano", 			{ size: [1200, 100], mode: "button
 	sustainToggle		= new Nexus.TextButton("susToggle", { size: [196, 49], text: "Sustain (\\)", mode: "toggle", alternate: "Sustain On"}),
 	killAllButton		= new Nexus.TextButton("killAll", 	{ size: [196, 49], text: "Kill All ⏎" }),
 	waveSelect			= new Nexus.Select("waveSelect", 	{ size: [92, 48], options: [...DEFAULT_WAVES] }),
-	saveWaveBtn			= new Nexus.TextButton("saveWave",{ size: [50, 48], text: "S"}),
-	delWaveBtn			= new Nexus.TextButton("delWave", { size: [50, 48], text: "D"}),
 	waveformDisplay		= new Nexus.Multislider("waveform", 
 							{ 
 								size: [1000, 150], 
@@ -139,18 +156,37 @@ vibDepthNumber.link(vibDepthSlider);
 vibSpeedNumber.link(vibSpeedSlider);
 
 let tuningNumbers		= [],
-	tuningList			= new Nexus.Select("tuningList", { size: [166, 48], options: ["",...DEFAULT_TUNES] }),
-	modifyTuningButton	= new Nexus.TextButton("modifyTuningButton", { size: [100, 48], text: "Load" });
+	tuningList			= new Nexus.Select("tuningList", { size: [176, 40], options: ["",...DEFAULT_TUNES] }),
+	modifyTuningButton	= new Nexus.TextButton("modifyTuningButton", { size: [90, 40], text: "Load" });
 
-let thirdSlider			= new Nexus.Slider("third",	{ size: [180, 30], min: -150, max: 150, step: 0.01, value: -13.68 }),
-	fifthSlider			= new Nexus.Slider("fifth",	{ size: [180, 30], min: -150, max: 150, step: 0.01, value:   1.96 }),
-	thirdNumber			= new Nexus.Number("thirdNum",	{ size: [50, 30]}),
-	fifthNumber			= new Nexus.Number("fifthNum",	{ size: [50, 30]});
+let fifthMajWidth		= new Nexus.Number("maj5w",	{ size: [43, 25] , step: 0.01, min: -25, max: 25 }),
+	thirdMajWidth		= new Nexus.Number("maj3w",	{ size: [43, 25] , step: 0.01, min: -25, max: 25 }),
+	thirdMinWidth		= new Nexus.Number("min3w",	{ size: [43, 25] , step: 0.01, min: -25, max: 25 });
 
-thirdNumber.link(thirdSlider);
-fifthNumber.link(fifthSlider);
+let	tuneSave 			= new Nexus.TextButton("tuneSave", { size: [85, 45], text: "Save" }),
+	tuneJust			= new Nexus.TextButton("tuneJust", { mode:"toggle", size: [85, 45], text: "Just" }),
+	tuneET 				= new Nexus.TextButton("tuneET",   { mode:"toggle", size: [85, 45], text: "ET" }),
+	tuneSlot 			= new Nexus.TextButton("tuneSlot", { mode:"toggle", size: [85, 45], text: "Slot" }),
+	tuneCurr 			= new Nexus.TextButton("tuneCurr", { mode:"toggle", size: [85, 45], text: "Curr" });
+
+let cAbsoluteS			= new Nexus.Slider("cSlider",	{ size: [180, 30], min: -25, max: 25, step: 0.01, value: 0 }),
+	eAbsoluteS			= new Nexus.Slider("eSlider",	{ size: [180, 30], min: -25, max: 25, step: 0.01, value: 0 }),
+	cAbsoluteN			= new Nexus.Number("cAbsoluteN",	{ size: [50, 30]}),
+	eAbsoluteN			= new Nexus.Number("eAbsoluteN",	{ size: [50, 30]});
+
+cAbsoluteN.link(cAbsoluteS);
+eAbsoluteN.link(eAbsoluteS);
 
 let cMajorButton 		= new Nexus.TextButton("cMajorButton", { size: [100, 48], text: "C Maj"});
+
+let startButton 			= new Nexus.TextButton("start", { mode: "toggle", size: [85, 45], text: "Start", alternate: "Stop"});
+
+let nextSlotButton		= new Nexus.TextButton("nextSlot", { size: [100, 48], text: "Next"}),
+	prevSlotButton		= new Nexus.TextButton("prevSlot", { size: [100, 48], text: "Prev"}),
+	delSlotButton		= new Nexus.TextButton("delSlot", { size: [100, 48], text: "Delete"}),
+	ovrrdSlotButton		= new Nexus.TextButton("overrideSlot", { size: [100, 48], text: "OVRRD"}),
+	saveSlotButton		= new Nexus.TextButton("saveSlot", { size: [100, 48], text: "Save"}),
+	exportButton		= new Nexus.TextButton("export", { size: [100, 48], text: "EXPORT"});
 
 // App variables
 	// A & B COEFFS --
@@ -174,7 +210,9 @@ let	harmonicSliders		= new Array(NUM_HARMONICS),
 	periodicWave		= aC.createPeriodicWave(aCoeffs, bCoeffs, {disableNormalization: true}),
 	noteBucket			= [],
 	tuningPresets		= [],
-	tuningCoeffs		= new Array(12).fill(0);
+	tuningCoeffs		= new Array(12).fill(0),
+	slotIndex			= -1;
+	slotData			= [];
 
 // Generate Sliders UI for Harmonics 
 // This part is ugly, just collapse it in your text editor / IDE.
@@ -247,6 +285,7 @@ d.addEventListener("keydown", e => {
 // qwerty Keyboard piano Setup
 let keyboardMapping = "zsxdcvgbhnjm,l.;/q2w3e4rt6y7ui9o0p-[";
 d.addEventListener("keydown", e => {
+	if (e.target !== d.body) return;
 	if (e.repeat) return;
 	let key = keyboardMapping.indexOf(e.key);
 	if (key !== -1) {
@@ -382,6 +421,7 @@ vibDepthSlider.on('change', v => {
 
 // Generate Numbers UI for Tuning
 for (let i = 0; i < tuningCoeffs.length; i++) {
+	//if ( (i !== 0) && (i !== 4) && (i !== 7) ) continue; // only C E and G
 	let el = d.createElement("div");
 	el.id = "tuning" + i;
 	el.setAttribute("stackRow", "")
@@ -394,8 +434,8 @@ for (let i = 0; i < tuningCoeffs.length; i++) {
 		step	: 0.01
 	});
 
-	tuningNumbers.push(tNumber);
-	tNumber.on('change', v => { tuningCoeffs[i] = v; updateTunings(); updateIntervals(); });
+	tuningNumbers[i] = tNumber;
+	tNumber.on('change', v => { tuningCoeffs[i] = v; updateTunings();});
 	// line-break
 	if ( i == 5 ) {
 		let br = d.createElement("div");
@@ -416,9 +456,10 @@ window.addEventListener("message", e => {
 });
 let updateTuningList = () => {
 	// If tuning file doesn't exist, put in the default one.
-	if (localStorage.getItem("tuningFile") == null || localStorage.getItem("tuningFile").trim() == "") {
+	// Always use default tuning file for now.
+	if (true || localStorage.getItem("tuningFile") == null || localStorage.getItem("tuningFile").trim() == "") {
 		localStorage.setItem("tuningFile", Helper.DEFAULT_TUNING_FILE);
-		alert("Tuning file not set, using default. Press OK to continue.");
+		//alert("Tuning file not set, using default. Press OK to continue.");
 	}
 
 	let parsedTunings = [];
@@ -440,8 +481,62 @@ tuningList.on('change', v => {
 	let index = v.index;
 	// update tuning numbers
 	for (let i = 0; i < tuningNumbers.length; i++) 
-		tuningNumbers[i].value = tuningPresets[index][i];
+		if (tuningNumbers[i]) 
+			tuningNumbers[i].value = tuningPresets[index][i];
+});
+
+let currentValues = [0, 0];
+
+tuneJust.on('click', () => {
+	let save = currentValues.slice(); //copy
+
+	tuningList.selectedIndex = 2;
+	propagateAbsolutePitches();
+	_disableAll();
+	tuneJust.flip(true);
+
+	currentValues = save; // put back
+});
+tuneET.on('click', () => {
+	let save = currentValues.slice(); //copy
+
+	tuningList.selectedIndex = 0;
+	propagateAbsolutePitches();
+	_disableAll();
+	tuneET.flip(true);
+
+	currentValues = save; // put back
+});
+
+
+tuneSave.on('click', () => {
+	saveSlot();
+});
+
+saveSlotButton.on('click', () => {
+	saveSlot();
 })
+
+tuneSlot.on('click', () => {
+	propagateSlotPitches();
+});
+
+tuneCurr.on('click', () => {
+	tuningNumbers[0].value = currentValues[0];
+	tuningNumbers[4].value = currentValues[1];
+	propagateAbsolutePitches();
+	_disableAll();
+	tuneCurr.flip(true);
+});
+
+
+let _disableAll = () => {
+	tuneJust.flip(false);
+	tuneET.flip(false);
+	tuneSlot.flip(false);
+	tuneCurr.flip(false);
+}
+
 
 // whenever a tuning number is changed
 let updateTunings = () => {
@@ -451,38 +546,144 @@ let updateTunings = () => {
 	});
 }
 
-let updateIntervals = () => {
+// change the display
+let propagateAbsolutePitches = () => {
 	let centsOfCFromC = tuningCoeffs[0];
 	let centsOfEFromC = tuningCoeffs[4] + 400;
 	let centsOfGFromC = tuningCoeffs[7] + 700;
 
-	// C < -- > E (in cents)
-	let widthOfThird = centsOfEFromC - centsOfCFromC;
-	// C < -- > G (in cents)
-	let widthOfFifth = centsOfGFromC - centsOfCFromC;
-
-	let deviationFromJIThird = centsOfEFromC - 1200*Math.log2(5/4) - centsOfCFromC;
+	let deviationFromJIThird = centsOfGFromC - 1200*Math.log2(6/5) - centsOfEFromC;
 	let deviationFromJIFifth = centsOfGFromC - 1200*Math.log2(3/2) - centsOfCFromC;
 
-	thirdNumber.value = -deviationFromJIThird;
-	fifthNumber.value = -deviationFromJIFifth;
+	eAbsoluteN.value = -deviationFromJIThird;
+	cAbsoluteN.value = -deviationFromJIFifth;
+
+	propagateWidths();
 }
+
+let propagateWidths = () => {
+	fifthMajWidth.value = -cAbsoluteN.value;
+	thirdMajWidth.value = eAbsoluteN.value;
+	thirdMinWidth.value = (fifthMajWidth.value - thirdMajWidth.value);
+}
+
 let intervalsHandler = () => {
-	let thirdJIDeviation = thirdNumber.value;
-	let fifthJIDeviation = fifthNumber.value;
+	// let thirdJIDeviation = thirdNumber.value;
+	// let fifthJIDeviation = fifthNumber.value;
 
-	let centsOfGFromC = tuningCoeffs[7] + 700;
+	// let centsOfGFromC = tuningCoeffs[7] + 700;
 
-	// change deviation of C from C(ET)
-	tuningNumbers[0].value = centsOfGFromC - 1200*Math.log2(3/2) + fifthJIDeviation;
-	tuningNumbers[4].value = tuningNumbers[0].value + 1200*Math.log2(5/4) - thirdJIDeviation - 1200*Math.log2(2**(4/12));
-
+	// // change deviation of C from C(ET)
+	// tuningNumbers[0].value = centsOfGFromC - 1200*Math.log2(3/2) + fifthJIDeviation;
+	// tuningNumbers[4].value = tuningNumbers[0].value + 1200*Math.log2(5/4) - thirdJIDeviation - 1200*Math.log2(2**(4/12));
 }
 
-thirdNumber.element.addEventListener('mousemove', intervalsHandler);
-fifthNumber.element.addEventListener('mousemove', intervalsHandler);
-thirdSlider.element.addEventListener('mousemove', intervalsHandler);
-fifthSlider.element.addEventListener('mousemove', intervalsHandler);
+
+
+cAbsoluteS.on('change', () => {
+	_disableAll();
+	tuneCurr.flip(true);
+	tuningNumbers[0].value = currentValues[0] = (700-1200*Math.log2(3/2)) + cAbsoluteN.value;
+	tuningNumbers[4].value = currentValues[1] = (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value;
+	propagateWidths();
+});
+
+eAbsoluteS.on('change', () => {
+	_disableAll();
+	tuneCurr.flip(true);
+	tuningNumbers[0].value = currentValues[0] = (700-1200*Math.log2(3/2)) + cAbsoluteN.value;
+	tuningNumbers[4].value = currentValues[1] = (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value;
+	propagateWidths();
+});
+
+startButton.on('change', v => {
+	cMajorHandler();
+})
+
+// // // Slots
+let updateSlotStatus = () => {
+	slotStatus.textContent = `Currently at slot number ${slotIndex + 1} out of ${slotData.length} slots.`;
+	if (slotIndex !== -1) slotComment.value = slotData[slotIndex].comment;
+}
+
+let saveSlot = () => {
+	slotData.push({
+		cFromET: (700-1200*Math.log2(3/2)) + cAbsoluteN.value,
+		eFromET: (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value,
+		fifthDeviation: -cAbsoluteN.value,
+		thirdDeviation: eAbsoluteN.value,
+		comment: slotComment.value
+	});
+	slotIndex = slotData.length - 1;
+	updateSlotStatus();
+}
+
+let propagateSlotPitches = () => {
+	let save = currentValues.slice(); //copy
+
+	tuningNumbers[0].value = slotData[slotIndex].cFromET;
+	tuningNumbers[4].value = slotData[slotIndex].eFromET;
+
+	propagateAbsolutePitches();
+	_disableAll();
+	tuneSlot.flip(true);
+
+	currentValues = save; // put back
+}
+
+nextSlotButton.on('click', () => {
+	slotIndex = slotIndex + 1 < slotData.length? slotIndex + 1 : slotIndex;
+	updateSlotStatus();
+	if (tuneSlot._state.state) propagateSlotPitches();
+});
+
+prevSlotButton.on('click', () => {
+	slotIndex = slotIndex > 0? slotIndex - 1 : slotIndex;
+	updateSlotStatus();
+	if (tuneSlot._state.state) propagateSlotPitches();
+});
+
+delSlotButton.on('click', () => {
+	if (confirm("Delete current slot?")) {
+		slotData.splice(slotIndex, 1);
+	}
+	updateSlotStatus();
+	if (tuneSlot._state.state) propagateSlotPitches();
+});
+
+ovrrdSlotButton.on('click', () => {
+	if (!confirm("Override current?")) return;
+	slotData[slotIndex] = {
+		cFromET: (700-1200*Math.log2(3/2)) + cAbsoluteN.value,
+		eFromET: (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value,
+		fifthDeviation: -cAbsoluteN.value,
+		thirdDeviation: eAbsoluteN.value,
+		comment: slotComment.value
+	};
+	propagateSlotPitches();
+})
+
+exportButton.on('click', () => {
+	// Export to CSV
+	let author = prompt("Enter your name: ");
+	let curDate = (new Date()).toLocaleDateString().replace(/\//g, "-");
+
+	let output = `Generated by,${author}, \nDate,${curDate}, \n
+	Pitch Deviations are from ET\n
+	Width Deviations are from Just\n\n
+	cPitchETDev,ePitchETDev,5M WidthJIDev,3M WidthJIDev,Comment, \n`;
+
+	slotData.forEach( slot => {
+		output += `${slot.cFromET}, ${slot.eFromET}, ${slot.fifthDeviation}, ${slot.thirdDeviation}, ${slot.comment}\n`;
+	})
+
+	let blob = new Blob([output], {type: "text/csv;charset=utf-8"});
+	saveAs(blob, author+"-"+curDate+".csv");
+})
+
+
+
+// ////// KEYBOARD HANDLING ////////////////
 
 
 let pressNote = (n,v) => {
@@ -520,16 +721,18 @@ let pressNote = (n,v) => {
 
 let releaseNote = n => {
 	if (noteBucket[n]) {
-		noteBucket[n][1].gain.cancelAndHoldAtTime(aC.currentTime)
+		if (noteBucket[n][1].gain.cancelAndHoldAtTime) {
+			noteBucket[n][1].gain.cancelAndHoldAtTime(aC.currentTime)
+		}
 		noteBucket[n][1].gain.setTargetAtTime(0, aC.currentTime, (releaseNumber.value/3000));
 		noteBucket[n][0].stop(aC.currentTime + (releaseNumber.value/100));
 	}
 }
 
-
 (function init() {
 	updateTuningList(); 
 	amplitudeSliders[0].value = 1;
+	updateSlotStatus();
 })();
 
 </script>

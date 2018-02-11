@@ -93,6 +93,20 @@ Helper.DEFAULT_TUNING_FILE = `
 17.596
 -11.731
 
+(c) Just (G anchored)
+-1.9550008
+11.731
+3.91
+15.641
+-15.641
+-1.955
+-17.487
+0
+13.686
+-15.641
+17.596
+-11.731
+
 (c) Werckmeister
 0
 -10
@@ -102,6 +116,20 @@ Helper.DEFAULT_TUNING_FILE = `
 -2
 -12
 -4
+-8
+-2
+-4
+-8
+
+(c) Werckmeister (G anchored)
+-4
+-10
+-8
+-6
+-14
+-2
+-12
+0
 -8
 -2
 -4
