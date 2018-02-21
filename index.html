@@ -77,9 +77,15 @@
 		</div>
 		<div quarter stackRow id="btns">
 			<span sectionLabel>Others</span><br>
-			WAVEFORM<br>
-			<div stackRow id="waveSelect"></div>
-			<div stackRow id="cMajorButton"></div>
+			<div row>
+				MODE (SAMPLES NOT READY)<br>
+				<div stackRow id="modeSelect"></div>
+			</div>
+			<div row>
+				WAVEFORM<br>
+				<div stackRow id="waveSelect"></div>
+				<div stackRow id="cMajorButton"></div>
+			</div>
 		</div>
 	</div>
 	<div row>
@@ -124,6 +130,7 @@ mainGain.connect(aC.destination);
 let pianoRoll			= new Nexus.Piano("piano", 			{ size: [1200, 100], mode: "button", lowNote: LOW_NOTE, highNote: HIGH_NOTE}),
 	sustainToggle		= new Nexus.TextButton("susToggle", { size: [196, 49], text: "Sustain (\\)", mode: "toggle", alternate: "Sustain On"}),
 	killAllButton		= new Nexus.TextButton("killAll", 	{ size: [196, 49], text: "Kill All ⏎" }),
+	modeSelect			= new Nexus.Select("modeSelect", { size: [152, 48], options: ["SYNTH", "SAMPLED"] })
 	waveSelect			= new Nexus.Select("waveSelect", 	{ size: [92, 48], options: [...DEFAULT_WAVES] }),
 	waveformDisplay		= new Nexus.Multislider("waveform", 
 							{ 
@@ -191,7 +198,7 @@ let nextSlotButton		= new Nexus.TextButton("nextSlot", { size: [100, 48], text: 
 // App variables
 	// A & B COEFFS --
 		// PeriodicWave gets two arrays, here aCoeffs/bCoeffs,
-		// which complys to (a+bi)e^(fi) + ... 
+		// which complys to (a+bi)e^(fti) + ... 
 		// The UI control values are stored in amplitude/phaseValues
 		// which are of the form amplitude and phase, i.e., a*cos(ft + b)
 		// We use Helper.CtoP to convert from one to another.
@@ -679,14 +686,49 @@ exportButton.on('click', () => {
 
 	let blob = new Blob([output], {type: "text/csv;charset=utf-8"});
 	saveAs(blob, author+"-"+curDate+".csv");
-})
+});
 
+// ADSR updater
+let updateHashADSR = () => {
+	location.hash = [attackNumber.value, decayNumber.value, sustainNumber.value, releaseNumber.value].join(",");
+}
+
+attackNumber.on('change', updateHashADSR);
+decayNumber.on('change', updateHashADSR);
+sustainNumber.on('change', updateHashADSR);
+releaseNumber.on('change', updateHashADSR);
+attackSlider.on('change', updateHashADSR);
+decaySlider.on('change', updateHashADSR);
+sustainSlider.on('change', updateHashADSR);
+releaseSlider.on('change', updateHashADSR);
 
 
 // ////// KEYBOARD HANDLING ////////////////
 
 
 let pressNote = (n,v) => {
+	switch (modeSelect.value) {
+		case "SYNTH":
+			startSynthNote(n,v);
+			break;
+		case "SAMPLED":
+			startSampleNote(n,v);
+			break;
+	}
+}
+
+let releaseNote = n => {
+	switch (modeSelect.value) {
+		case "SYNTH":
+			releaseSynthNote(n);
+			break;
+		case "SAMPLED":
+			break;
+	}
+}
+
+
+let startSynthNote = (n,v) => {
 	let gain	= aC.createGain(),
 		osc		= aC.createOscillator(),
 		vib 	= aC.createOscillator(),
@@ -719,7 +761,7 @@ let pressNote = (n,v) => {
 	noteBucket[n] = [osc, gain, vib, vibDep];
 }
 
-let releaseNote = n => {
+let releaseSynthNote = n => {
 	if (noteBucket[n]) {
 		if (noteBucket[n][1].gain.cancelAndHoldAtTime) {
 			noteBucket[n][1].gain.cancelAndHoldAtTime(aC.currentTime)
@@ -729,10 +771,49 @@ let releaseNote = n => {
 	}
 }
 
+let audioBuffers = [];
+
+let startSampleNote = (n,v) => {
+	let sourceNode = aC.createBufferSource();
+	sourceNode.buffer = audioBuffers[n%12];
+	sourceNode.detune.value = tuningCoeffs[n%12]; 
+	sourceNode.connect(mainGain);
+	sourceNode.start();
+}
+
 (function init() {
 	updateTuningList(); 
 	amplitudeSliders[0].value = 1;
 	updateSlotStatus();
+
+
+	// Update ADSR
+	let hash = location.hash.replace("#","");
+	if (hash != "") {
+		let adsr = hash.split(",");
+		attackNumber.value 	= ~~adsr[0];
+		decayNumber.value 	= ~~adsr[1];
+		sustainNumber.value	= ~~adsr[2];
+		releaseNumber.value	= ~~adsr[3];
+	}
+
+	// fetch audio
+	Promise.all([0, 4, 7].map( index => 
+		fetch("./audio/"+index+".wav").then(res => 
+			res.arrayBuffer()
+		).then(data => 
+			aC.decodeAudioData(data)
+		).then(buff => audioBuffers[index] = buff)
+	)).then( () => {
+		modeSelect
+			.element
+			.parentElement
+			.previousSibling
+			.previousSibling
+			.previousSibling
+			.textContent = "MODE (SAMPLES READY)";
+	})
+
 })();
 
 </script>
