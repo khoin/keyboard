@@ -898,6 +898,9 @@ ovrrdSlotButton.on('click', () => {
 	propagateSlotPitches();
 })
 
+	// changes : I removed the 'comment' column because I am using comments to specify column types. I added an 'id' column that contains
+	// information about rows and columns of slots.
+	// I have made a template for the import function below this function. I hope you will find the template helpful.  
 exportButton.on('click', () => {
 	// Export to CSV
 	let author = prompt("Enter your name: ");
@@ -923,24 +926,26 @@ exportButton.on('click', () => {
 })
 
 // imports data from a csv file
-// importButton.on('click', () => {
-// 	clearTableAndMap();
+let importData = () => {
+	// 	clearTableAndMap();
 
-// 	Koi, use this template to import from a file
+	// 	Koi, use this template to import from a file
 
-// 	for(all rows){
+	// 	for(all rows){
 
-// 		var data = row.data;
-// 		var id = row.id;
-// 		TuningMap.set(id, data);
-// 		var data = getRowAndColumnOfButton(id);
-// 		var row = preferenceTable.rows[data[0]];
-// 		var cell = row.cells[data[1]];
-// 		cell.innerHTML = "<button id = " + "\"" + id +  "\"" + "> " + "</button>";
+	// 		var data = row.data;
+	// 		var id = row.id;
+	// 		TuningMap.set(id, data);
+	// 		var data = getRowAndColumnOfButton(id);
+	// 		var row = preferenceTable.rows[data[0]];
+	// 		var cell = row.cells[data[1]];
+	// 		cell.innerHTML = "<button id = " + "\"" + id +  "\"" + "> " + "</button>";
 
-// 	}
-// })
+	// 	}
+ }
 
+
+// removes all buttons from the slot interface and clears the map we are using to store data.
 let clearTableAndMap = () => {
 	TuningMap.forEach(function(value, key, map){
 			if(key != null){
