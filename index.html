@@ -29,6 +29,22 @@
 		#ampenv input, #lfo input, #intervalWidths input { margin-left: 10px; }
 
 		#tunings { display: none; }
+
+		td{
+			border : 2px solid white;
+			width : 100px;
+			height: 12px
+			text-align: center;
+		}
+
+		
+		button{
+			width: 12px;
+			height: 12px
+		}
+		.slot{
+			background-color: pink;
+		}
 		
 	</style>
 </head>
@@ -93,9 +109,63 @@
 		<div stackRow id="saveSlot"></div><div stackRow id="overrideSlot"></div><div stackRow id="delSlot"></div>
 		<div stackRow id="export"></div>
 	</div>
+	<div>
+		<h1> Slot Interface </h1>
+		<table id="preferenceTable">
+			<tr id="tableHeading">
+				<td>Good</td>
+				<td>Medium</td>
+				<td>Bad</td>
+			</tr>
+		</table> 
+	</div>
 	<br>
 	<br>
+
 <script>
+
+
+// stores the button that is currently selected on the interface.
+var slotCurrentlySelected;
+
+
+// Using a Map to store the slot data. The key is in the format "row(space)column". 
+// Here rows and columns correspond to the rows and columns of the table(interface).  
+var TuningMap = new Map(); 
+
+
+// Storing the column numbers associated with each type of slot.
+var slotTypes = new Map();
+slotTypes.set("good" , 0);
+slotTypes.set("medium" , 1);
+slotTypes.set("bad" , 2);
+
+
+
+
+
+// the HTML table that includes all the buttons of the interface. 
+var preferenceTable = document.getElementById("preferenceTable");
+
+// number of rows of the HTML table.
+var numOfTableRows = 10;
+
+// number of columns(slot types) of the  HTML table.
+var numOfTableColumns = 3;
+
+
+// true when a sound is playing and false when there is silence.
+var isSoundPlaying = false;
+
+// fill up the table with default rows and columns.
+for(var i = 0; i < numOfTableRows; i++){
+	var row = preferenceTable.insertRow(preferenceTable.rows.length);
+	for(var j = 0; j < numOfTableColumns; j++){
+		row.insertCell(0).textContent = "column " + j;
+	}
+}
+
+
 
 // Browser compatibilities
 let AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -187,6 +257,8 @@ let nextSlotButton		= new Nexus.TextButton("nextSlot", { size: [100, 48], text: 
 	ovrrdSlotButton		= new Nexus.TextButton("overrideSlot", { size: [100, 48], text: "OVRRD"}),
 	saveSlotButton		= new Nexus.TextButton("saveSlot", { size: [100, 48], text: "Save"}),
 	exportButton		= new Nexus.TextButton("export", { size: [100, 48], text: "EXPORT"});
+	//importButton		= new Nexus.TextButton("import", { size: [100, 48], text: "IMPORT"});
+
 
 // App variables
 	// A & B COEFFS --
@@ -314,6 +386,7 @@ d.addEventListener("keydown", e => {
 
 // C Major Button
 let cMajorHandler = () => {
+	isSoundPlaying = !isSoundPlaying;
 	pianoRoll.toggleIndex(24);
 	pianoRoll.toggleIndex(24 + 4);
 	pianoRoll.toggleIndex(24 + 7);
@@ -517,6 +590,9 @@ saveSlotButton.on('click', () => {
 	saveSlot();
 })
 
+
+
+
 tuneSlot.on('click', () => {
 	propagateSlotPitches();
 });
@@ -606,16 +682,128 @@ let updateSlotStatus = () => {
 	if (slotIndex !== -1) slotComment.value = slotData[slotIndex].comment;
 }
 
+
+// Makes a button on the interface correspoding to the saved slot. 
+// Gives functionalities to the button. 
+// Buttons id is stored as 'key' of the map and the button itself is stored as 'value' 
 let saveSlot = () => {
-	slotData.push({
+	var data = {
 		cFromET: (700-1200*Math.log2(3/2)) + cAbsoluteN.value,
 		eFromET: (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value,
 		fifthDeviation: -cAbsoluteN.value,
 		thirdDeviation: eAbsoluteN.value,
 		comment: slotComment.value
-	});
+	}
+
+	slotData.push(data);
+
+	// figure out whether the column(slot type) specified is valid and then add the button to the interface
+	 if(slotComment.value == "good" || slotComment.value == "medium" || slotComment.value == "bad"){ 	
+		addButtonToInterface(slotComment.value, data);
+	 }
+	
+	
 	slotIndex = slotData.length - 1;
 	updateSlotStatus();
+}
+
+// 'type' specifies the column 
+// 'data' represents the tuning data    
+let addButtonToInterface = (type, data) => {
+
+		// get the index corresponding to the column
+		var slotTypeIndex = slotTypes.get(type);
+
+		// find a 'free' row to place this button
+		var insertIndex = indexOfEmptyRow(slotTypeIndex);
+
+		// construct the button id in with right format 
+		// format : "row(space)column".
+	 	var buttonId = insertIndex + " " + slotTypeIndex;
+
+	 	// make a button in the appropriate place in the table
+		preferenceTable.rows[insertIndex].cells[slotTypeIndex].innerHTML = "<button id = " + "\"" + buttonId +  "\"" + "> " + "</button>";
+
+
+		TuningMap.set(buttonId, data);
+
+		// store the button in consideration
+		var button = document.getElementById(buttonId);
+
+
+		button.addEventListener("click", function(){
+			// change the tuning of the HK to the tuning corresponding to the button
+			// please have a look at this
+			propagateSlotPitches2(this.id);
+
+			// if nothing has been selected, select this button
+			if(slotCurrentlySelected == null){
+				slotCurrentlySelected = this;
+			}
+
+			// change color of button
+			this.classList.add("slot");
+			
+			
+
+			// some button color changing and sound playing logic. 
+			if(this.id == slotCurrentlySelected.id){
+				cMajorHandler();
+			}else{
+				if(isSoundPlaying){
+					cMajorHandler();
+				}
+			}
+
+			slotCurrentlySelected = this;
+
+			// some more button color changing logic
+			nullifySlotColors();	
+		});
+}
+
+// returns a row where a button of type 'column' can be placed.
+let indexOfEmptyRow = (column) => {
+	for(var i = 1; i < numOfTableRows; i++){
+		var row = preferenceTable.rows[i];
+		var cell = row.cells[column];
+		if(cell.firstChild == null || cell.firstChild.tagName != "BUTTON"){
+			return i;
+		}
+	}
+	return "full";		
+}
+
+
+// changes the colors of the slots other than the selected slot to default
+let nullifySlotColors = () => {
+		TuningMap.forEach(function(value, key, map){
+			if(key != slotCurrentlySelected.id){
+  				var button = document.getElementById("" + key);
+  				if(button != null){
+  					button.classList.remove("slot");
+  				}
+  			}
+		});		
+}
+
+
+
+
+// Helps extract the data of a button from the map and change the status of the harmonic keyboard.
+// please check if this doesn't conflict with anything. 
+let propagateSlotPitches2 = (key) => {
+	let save = currentValues.slice(); //copy
+
+	// tuningNumbers[0].value = slotData[slotIndex].cFromET;
+	// tuningNumbers[4].value = slotData[slotIndex].eFromET;
+	tuningNumbers[0].value = TuningMap.get(key).cFromET;
+	tuningNumbers[4].value = TuningMap.get(key).eFromET;
+	propagateAbsolutePitches();
+	_disableAll();
+	tuneSlot.flip(true);
+
+	currentValues = save; // put back
 }
 
 let propagateSlotPitches = () => {
@@ -631,6 +819,38 @@ let propagateSlotPitches = () => {
 	currentValues = save; // put back
 }
 
+
+// removes a button from the button-interface(table) after finding it by looping through the entire table :c 
+let deleteSelectedSlot = () => {
+	var data = getRowAndColumnOfButton(slotCurrentlySelected.id);
+	var row = preferenceTable.rows[data[0]];
+	var cell = row.cells[data[1]];
+	TuningMap.delete(slotCurrentlySelected.id);
+	cell.removeChild(slotCurrentlySelected);
+	slotCurrentlySelected = null;
+}
+
+// parses an id string to get the row number and column number in an array of size two.
+// array[0] is the row number
+// array[1] is the column
+let getRowAndColumnOfButton = (buttonId) => {
+	var indexOfSpace;
+	for(var i = 0; i < buttonId.length; i++){
+		if(buttonId[i] == " "){
+			indexOfSpace = i;
+		}
+	}
+	var row = buttonId.substr(0, indexOfSpace);
+	console.log("row : " + row);
+	var column = buttonId.substr(indexOfSpace + 1, buttonId.length);
+	console.log("column : " + column);
+	return [Number(row), Number(column)];
+}
+
+
+
+
+
 nextSlotButton.on('click', () => {
 	slotIndex = slotIndex + 1 < slotData.length? slotIndex + 1 : slotIndex;
 	updateSlotStatus();
@@ -643,26 +863,44 @@ prevSlotButton.on('click', () => {
 	if (tuneSlot._state.state) propagateSlotPitches();
 });
 
+
+// deletes the currently selected button from the slot interface.
 delSlotButton.on('click', () => {
-	if (confirm("Delete current slot?")) {
-		slotData.splice(slotIndex, 1);
-	}
-	updateSlotStatus();
-	if (tuneSlot._state.state) propagateSlotPitches();
+	if(slotCurrentlySelected != null){
+	 	if (confirm("Delete current slot?")) {
+	 		slotData.splice(slotIndex, 1);
+	 	}
+
+		deleteSelectedSlot();
+	}else{
+		alert("please select a slot before deleting");
+	}	
 });
+
+
 
 ovrrdSlotButton.on('click', () => {
 	if (!confirm("Override current?")) return;
-	slotData[slotIndex] = {
+	var data = {
 		cFromET: (700-1200*Math.log2(3/2)) + cAbsoluteN.value,
 		eFromET: (700-400-1200*Math.log2(6/5)) + eAbsoluteN.value,
 		fifthDeviation: -cAbsoluteN.value,
 		thirdDeviation: eAbsoluteN.value,
 		comment: slotComment.value
 	};
+	slotData[slotIndex] = data;
+	if(slotCurrentlySelected != null){
+		TuningMap.set(slotCurrentlySelected.id, data);
+		propagateSlotPitches2(slotCurrentlySelected.id);
+	}else{
+		alert("please select a button before overriding");
+	}
 	propagateSlotPitches();
 })
 
+	// changes : I removed the 'comment' column because I am using comments to specify column types. I added an 'id' column that contains
+	// information about rows and columns of slots.
+	// I have made a template for the import function below this function. I hope you will find the template helpful.  
 exportButton.on('click', () => {
 	// Export to CSV
 	let author = prompt("Enter your name: ");
@@ -671,15 +909,59 @@ exportButton.on('click', () => {
 	let output = `Generated by,${author}, \nDate,${curDate}, \n
 	Pitch Deviations are from ET\n
 	Width Deviations are from Just\n\n
-	cPitchETDev,ePitchETDev,5M WidthJIDev,3M WidthJIDev,Comment, \n`;
+	row&col,cPitchETDev,ePitchETDev,5M WidthJIDev,3M WidthJIDev\n`;
 
-	slotData.forEach( slot => {
-		output += `${slot.cFromET}, ${slot.eFromET}, ${slot.fifthDeviation}, ${slot.thirdDeviation}, ${slot.comment}\n`;
-	})
+	// slotData.forEach( slot => {
+	// 	output += `${slot.cFromET}, ${slot.eFromET}, ${slot.fifthDeviation}, ${slot.thirdDeviation}, ${slot.comment}\n`;
+	// })
+
+	// changes : I removed the 'comment' column because I am using it as a way to specify columns. I added an 'id' column that contains
+	// information about rows and columns of slots. 
+	TuningMap.forEach(function(value, key, map){
+			output += `${key},${value.cFromET}, ${value.eFromET}, ${value.fifthDeviation}, ${value.thirdDeviation}\n`;
+		});
 
 	let blob = new Blob([output], {type: "text/csv;charset=utf-8"});
 	saveAs(blob, author+"-"+curDate+".csv");
 })
+
+// imports data from a csv file
+let importData = () => {
+	// 	clearTableAndMap();
+
+	// 	Koi, use this template to import from a file
+
+	// 	for(all rows){
+
+	// 		var data = row.data;
+	// 		var id = row.id;
+	// 		TuningMap.set(id, data);
+	// 		var data = getRowAndColumnOfButton(id);
+	// 		var row = preferenceTable.rows[data[0]];
+	// 		var cell = row.cells[data[1]];
+	// 		cell.innerHTML = "<button id = " + "\"" + id +  "\"" + "> " + "</button>";
+
+	// 	}
+ }
+
+
+// removes all buttons from the slot interface and clears the map we are using to store data.
+let clearTableAndMap = () => {
+	TuningMap.forEach(function(value, key, map){
+			if(key != null){
+				var data = getRowAndColumnOfButton(key);
+				var row = preferenceTable.rows[data[0]];
+				var cell = row.cells[data[1]];
+				cell.innerHTML = '';
+			}
+		});
+
+	TuningMap.clear();
+}
+
+
+
+
 
 
 
