@@ -86,6 +86,8 @@
 				<div stackRow id="waveSelect"></div>
 				<div stackRow id="cMajorButton"></div>
 			</div>
+			VOLUME<br>
+			<div stackRow id="volume"></div>
 		</div>
 	</div>
 	<div row>
@@ -184,7 +186,8 @@ let cAbsoluteS			= new Nexus.Slider("cSlider",	{ size: [180, 30], min: -25, max:
 cAbsoluteN.link(cAbsoluteS);
 eAbsoluteN.link(eAbsoluteS);
 
-let cMajorButton 		= new Nexus.TextButton("cMajorButton", { size: [100, 48], text: "C Maj"});
+let cMajorButton 		= new Nexus.TextButton("cMajorButton", { size: [100, 48], text: "C Maj"}),
+	volumeSlider		= new Nexus.Slider("volume", { size: [180, 30], min: 0.1, max: 0.90, step: 0.01, value: 0.5 });
 
 let startButton 			= new Nexus.TextButton("start", { mode: "toggle", size: [85, 45], text: "Start", alternate: "Stop"});
 
@@ -260,6 +263,10 @@ for (let i = 0; i < NUM_HARMONICS; i++) {
 }
 
 // // // // // // // //  PIANO & MISC. // // // // // // // // 
+
+volumeSlider.on('change', v => {
+	mainGain.gain.value = v**4; //rough loga
+})
 
 let pianoEventHandler = v => {
 	if (v.state) 
@@ -727,6 +734,7 @@ let releaseNote = n => {
 	}
 }
 
+const SAMPLE_ADJUSTMENTS = [0, 0, 4, 0, 6, 8 ,12, 9, 9, 1, 0, 0].map(x => -x);
 
 let startSynthNote = (n,v) => {
 	let gain	= aC.createGain(),
@@ -753,7 +761,7 @@ let startSynthNote = (n,v) => {
 	gain.gain.setTargetAtTime(sustainNumber.value/100, aC.currentTime + attackNumber.value/1000, decayNumber.value/3000);
 
 	// Setting frequency + temperament
-	osc.frequency.value = Math.pow(2, (n - 33 + tuningCoeffs[n%12]/100) / 12) * 440; 
+	osc.frequency.value = Math.pow(2, (n - 33 + (tuningCoeffs[n%12] )/100) / 12) * 440; 
 
 	// Finally start it, kill existing note and throw it into the bucket
 	osc.start();
@@ -776,7 +784,7 @@ let audioBuffers = [];
 let startSampleNote = (n,v) => {
 	let sourceNode = aC.createBufferSource();
 	sourceNode.buffer = audioBuffers[n%12];
-	sourceNode.detune.value = tuningCoeffs[n%12]; 
+	sourceNode.detune.value = tuningCoeffs[n%12] + SAMPLE_ADJUSTMENTS[n%12] ; 
 	sourceNode.connect(mainGain);
 	sourceNode.start();
 }
@@ -799,7 +807,7 @@ let startSampleNote = (n,v) => {
 
 	// fetch audio
 	Promise.all([0, 4, 7].map( index => 
-		fetch("./audio/"+index+".wav").then(res => 
+		fetch("./audio/"+index+".mp3").then(res => 
 			res.arrayBuffer()
 		).then(data => 
 			aC.decodeAudioData(data)
